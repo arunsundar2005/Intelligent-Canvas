@@ -3,11 +3,17 @@ import numpy as np
 import time
 import os
 import handTracking as HT
+from mavis import MavisAI
+import pyttsx3
+import threading
+
 
 folderpath = "UI_props"
 path_list = os.listdir(folderpath)
 # print(path_list)
 img_list = []
+loading = False
+
 
 for imPath in path_list:
     image = cv2.imread(f"{folderpath}/{imPath}")
@@ -25,6 +31,17 @@ cap.set(4, 720) # height
 # print(f"Camera resolution: {actual_width}x{actual_height}")
 
 detector = HT.handDetector(detectionCon=0.85)
+mavis = MavisAI()
+
+# Initialize the engine
+engine = pyttsx3.init()
+
+# Set speech rate (optional)
+engine.setProperty('rate', 150)
+
+# Set voice (optional)
+voices = engine.getProperty('voices')
+engine.setProperty('voice', voices[0].id)  # [0] for male, [1] for female on most systems
 
 # Create Drawing Canvas
 canvas = np.zeros((720, 1280, 3), np.uint8)
@@ -41,7 +58,20 @@ draw_color = (255, 255, 255)
 # 2. Pen Settings
 
 stroke = 15
+pen_stroke = 15
+eraser_stroke = 85
 xp, yp = 0, 0
+
+def ask_llm_async(canvas, mavis, engine):
+    global loading
+    loading = True
+    img_path = "img_to_ask.png" # Save image to temp file
+    cv2.imwrite(img_path, canvas)
+    response = mavis.ask("img_to_ask.png") # Get AI response
+    engine.say(response) # Speak the response
+    engine.runAndWait()
+
+    loading = False
 
 while True:
 
@@ -95,22 +125,32 @@ while True:
                     header = img_list[1]
                     print(f"Selected Pen")
                     draw_color = pen_color
+                    stroke = pen_stroke
                 if 620<x1<690 :
                     header = img_list[2]
                     print("Selected Pencil")
                     draw_color = pencil_color
+                    stroke = pen_stroke
                 if 735<x1<845 :
                     header = img_list[3]
                     print("Selected Eraser")
+                    stroke = eraser_stroke
+                    print(stroke)
                     draw_color = (0,0,0)
             if 50<x1<200 and 200<y1<250:
                 print("Cleared All")
                 canvas = np.zeros((720, 1280, 3), np.uint8)
             if 950<x1<1230 and 200<y1<250:
                 print("Asking LLM ...")
-                cv2.imwrite("img_to_ask.png", canvas)
+                # cv2.imwrite("img_to_ask.png", canvas)
+                # response = mavis.ask("img1.png")
+                # engine.say(response)
+                # engine.runAndWait()
+                threading.Thread(target=ask_llm_async, args=(canvas.copy(), mavis, engine)).start()
         # print(f"[{x1},{y2}]")
        
+        if loading:
+            cv2.putText(img, "Asking AI...", (350, 550), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
                      
 
 
@@ -121,6 +161,7 @@ while True:
             # Drawing
             if xp == 0 and yp == 0:
                 xp, yp = x1, y1
+            print(stroke)
             cv2.line(img, (xp, yp), (x1, y1), draw_color, stroke)
             cv2.line(canvas, (xp, yp), (x1, y1), draw_color, stroke)
         xp, yp = x1, y1
